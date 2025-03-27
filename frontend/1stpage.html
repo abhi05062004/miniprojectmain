@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Substitution & Allergy Detection</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="script.js" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+
+    <div class="container">
+        <h1>Food Substitution & Allergy Detection</h1>
+        
+        <!-- Food Search -->
+        <div class="search-box">
+            <input type="text" id="foodInput" placeholder="Search for a food item...">
+            <button onclick="submitData()"><i class="fas fa-search"></i></button>
+        </div>
+
+        <!-- Image Upload -->
+        <div class="upload-box">
+            <input type="file" id="imageUpload" accept="image/*">
+            <button onclick="submitData()">Upload Image</button>
+        </div>
+
+        <!-- Submit Button -->
+        <button class="submit-btn" onclick="submitData()">Check Substitutes & Allergies</button>
+
+        <!-- Results Section -->
+        <div id="results"></div>
+    </div>
+
+</body>
+</html> 
