@@ -1,87 +1,110 @@
-# from flask import Flask, request, jsonify
-# import pickle
-# from ingredient_substitution_model import EnhancedIngredientSubstitution  # Import the class
-# from collections import defaultdict
-# import os
-
-# app = Flask(__name__)
-
-# # Define the defaultdict_int function
-# def defaultdict_int():
-#     return defaultdict(int)
-
-# # Load the trained model
-# model_path = os.path.join(os.path.dirname(__file__), 'enhanced_ingredient_substitution.pkl')
-# with open(model_path, 'rb') as file:
-#     system = pickle.load(file)
-
-# @app.route('/substitutes', methods=['POST'])
-# def get_substitutes():
-#     """API endpoint to get ingredient substitutes."""
-#     data = request.json
-#     ingredient = data.get('ingredient')
-#     cuisine = data.get('cuisine', None)
-#     if not ingredient:
-#         return jsonify({'error': 'Ingredient is required'}), 400
-#     substitutes = system.find_substitutes(ingredient, cuisine)
-#     return jsonify({'ingredient': ingredient, 'substitutes': substitutes})
-
-# if __name__ == '__main__':
-#     app.run(debug=True)
-
-
+import os
+import cv2
 import numpy as np
-import tensorflow as tf
 import pandas as pd
+import tensorflow as tf
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from sklearn.preprocessing import LabelEncoder
+from werkzeug.utils import secure_filename
+from ultralytics import YOLO
 
 app = Flask(__name__)
 CORS(app)
 
-# Load the updated dataset
-file_path = "backend/updated_food1.csv"
-data = pd.read_csv(file_path)
+# Define correct file paths
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(BASE_DIR, "food_alternatives_dataset.csv")
+model_path = os.path.join(BASE_DIR, "food_substitution_model.h5")
 
-# Remove spaces from column names (if needed)
+# Check if files exist
+if not os.path.exists(file_path):
+    raise FileNotFoundError(f"Dataset file not found: {file_path}")
+if not os.path.exists(model_path):
+    raise FileNotFoundError(f"Model file not found: {model_path}")
+
+# Load dataset
+data = pd.read_csv(file_path)
 data.columns = data.columns.str.strip()
 
-# Load the saved LabelEncoder classes
-encoder_classes = np.load("backend/label_encoder_classes.npy", allow_pickle=True)
-encoder = LabelEncoder()
-encoder.classes_ = encoder_classes
+# Load trained food substitution model
+model = tf.keras.models.load_model(model_path)
 
-# Load trained model
-model = tf.keras.models.load_model("backend/food_substitution_model.h5")
+# Set up image upload folder
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Function to get food alternative
+# Load YOLO model (Make sure to replace this with your actual model initialization)
+yolo_model = YOLO("backend/vegetable.pt")  # TODO: Load your YOLO model here
+
+# Function to get food alternative based on dataset
 def get_alternative(food_name):
-    if food_name not in encoder.classes_:
+    food_name = food_name.strip().lower()
+    if food_name not in data['Food Name'].str.lower().values:
         return {'error': f"'{food_name}' is not in the dataset! No substitute found."}
     
-    # Convert food name to numerical ID
-    food_id = encoder.transform([food_name])[0]
-    
-    # Predict alternative food
-    predictions = model.predict(np.array([food_id]).reshape(1, 1))
-    alternative_id = np.argmax(predictions)
-    
-    # Get alternative food name
-    alternative_food = encoder.inverse_transform([alternative_id])[0]
-    
-    return {'ingredient': food_name, 'substitute': alternative_food}
+    substitute = data.loc[data['Food Name'].str.lower() == food_name, 'Alternative'].values
+    if len(substitute) > 0:
+        return {'ingredient': food_name, 'substitute':str(substitute)}
+    else:
+        return {'error': 'No substitute found.'}
 
 @app.route('/substitute', methods=['POST'])
 def get_substitutes():
-    data = request.json
-    ingredient = data.get('ingredient')
-    
-    if not ingredient:
-        return jsonify({'error': 'Ingredient is required'}), 400
-    
-    result = get_alternative(ingredient.lower())
-    return jsonify(result)
+    try:
+        data = request.json
+        ingredient = data.get('ingredient')
+        if not data or 'ingredient' not in data:
+            return jsonify({'error': 'Ingredient is required'}), 400
+
+        ingredient = data['ingredient'].strip().lower()
+        result = get_alternative(ingredient)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+# 🔹 Updated /predict endpoint to handle IMAGE uploads
+@app.route('/predict', methods=['POST'])
+def predict_vegetable():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    filename = secure_filename(file.filename)
+
+    # Ensure only images are uploaded
+    if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+        return jsonify({'error': 'Invalid file type. Please upload an image (JPG, PNG, JPEG)'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+
+    try:
+        # Read and process image
+        img = cv2.imread(filepath)
+        if img is None:
+            return jsonify({'error': 'Invalid image file'}), 400
+        
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert to RGB for YOLO
+
+        # Run YOLO model for vegetable detection
+        if yolo_model is None:
+            return jsonify({'error': 'YOLO model not loaded'}), 500
+        
+        results = yolo_model(img)
+
+        if len(results) == 0 or len(results[0].boxes) == 0:
+            return jsonify({'error': 'No vegetable detected'}), 404
+
+        # Get detected vegetable name
+        detected_vegetable = results[0].names[int(results[0].boxes.cls[0])]
+
+        # Find a substitute for detected vegetable
+        substitute_response = get_alternative(detected_vegetable.lower())
+
+        return jsonify({'detected_vegetable': detected_vegetable, **substitute_response})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='127.0.0.1', port=5000, debug=True)

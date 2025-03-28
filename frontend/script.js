@@ -44,13 +44,15 @@ async function submitData() {
             response = await fetch("http://localhost:5000/substitute", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ingredient: food })
+                body: JSON.stringify({ ingredient: food.toLowerCase() })
             });
         }
 
         let result = await response.json();
         if (result.error) {
             resultsDiv.innerHTML = `<span style='color: red;'>Error: ${result.error}</span>`;
+        } else if (result.substitutions) {
+            resultsDiv.innerHTML = `Predicted Substitutions: <b>${result.substitutions.join(", ")}</b>`;
         } else {
             resultsDiv.innerHTML = `Substitute for <b>${result.ingredient}</b>: <b>${result.substitute}</b>`;
         }
